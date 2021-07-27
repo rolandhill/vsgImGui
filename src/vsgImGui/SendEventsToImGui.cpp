@@ -88,6 +88,7 @@ void SendEventsToImGui::_initKeymap()
     _assignKeyMapping(ImGuiKey_Backspace, vsg::KeySymbol::KEY_BackSpace);
     _assignKeyMapping(ImGuiKey_Space, vsg::KeySymbol::KEY_Space);
     _assignKeyMapping(ImGuiKey_Enter, vsg::KeySymbol::KEY_Return);
+    _assignKeyMapping(ImGuiKey_Enter, vsg::KeySymbol::KEY_KP_Enter);
     _assignKeyMapping(ImGuiKey_Escape, vsg::KeySymbol::KEY_Escape);
     _assignKeyMapping(ImGuiKey_KeyPadEnter, vsg::KeySymbol::KEY_KP_Enter);
     _assignKeyMapping(ImGuiKey_A, vsg::KeySymbol::KEY_A, vsg::KeySymbol::KEY_a, vsg::KeyModifier::MODKEY_Control);
@@ -184,6 +185,8 @@ void SendEventsToImGui::apply(vsg::KeyPressEvent& keyPress)
         }
         else if (uint16_t c = keyPress.keyModified; c > 0)
         {
+            // Translate numpad numbers into normal numbers
+            if (c >= 65450 && c <= 65465) c = c - 65408;
             if (c < 512) io.KeysDown[c] = true;
             io.AddInputCharacter((unsigned short)c);
         }
@@ -228,7 +231,7 @@ void SendEventsToImGui::apply(vsg::FrameEvent& /*frame*/)
     ImGuiIO& io = ImGui::GetIO();
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    double dt = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
+    float dt = std::chrono::duration<float>(t1 - t0).count();
     t0 = t1;
 
     io.DeltaTime = dt;
