@@ -1,0 +1,60 @@
+@@ -727,2 +727,2 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-    table->EnabledMaskByIndex = 0x00;
+-    table->EnabledMaskByDisplayOrder = 0x00;
++    table->EnabledMaskByIndex.ClearAllBits();
++    table->EnabledMaskByDisplayOrder.ClearAllBits();
+@@ -791,2 +791,2 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-        table->EnabledMaskByIndex |= (ImU64)1 << column_n;
+-        table->EnabledMaskByDisplayOrder |= (ImU64)1 << column->DisplayOrder;
++        table->EnabledMaskByIndex.SetBit(column_n);
++        table->EnabledMaskByDisplayOrder.SetBit(column->DisplayOrder);
+@@ -840 +840 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-        if (!(table->EnabledMaskByIndex & ((ImU64)1 << column_n)))
++        if (!table->EnabledMaskByIndex.TestBit(column_n))
+@@ -856 +856 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-            else if ((column->Flags & ImGuiTableColumnFlags_WidthFixed) && !column_is_resizable && (table->RequestOutputMaskByIndex & ((ImU64)1 << column_n)))
++            else if ((column->Flags & ImGuiTableColumnFlags_WidthFixed) && !column_is_resizable && table->RequestOutputMaskByIndex.TestBit(column_n))
+@@ -902 +902 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-        if (!(table->EnabledMaskByIndex & ((ImU64)1 << column_n)))
++        if (!table->EnabledMaskByIndex.TestBit(column_n))
+@@ -929 +929 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-            if (!(table->EnabledMaskByDisplayOrder & ((ImU64)1 << order_n)))
++            if (!table->EnabledMaskByDisplayOrder.TestBit(order_n))
+@@ -951,2 +951,2 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-    table->VisibleMaskByIndex = 0x00;
+-    table->RequestOutputMaskByIndex = 0x00;
++    table->VisibleMaskByIndex.ClearAllBits();
++    table->RequestOutputMaskByIndex.ClearAllBits();
+@@ -969 +969 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-        if ((table->EnabledMaskByDisplayOrder & ((ImU64)1 << order_n)) == 0)
++        if (!table->EnabledMaskByDisplayOrder.TestBit(order_n))
+@@ -1022 +1022 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-            table->VisibleMaskByIndex |= ((ImU64)1 << column_n);
++            table->VisibleMaskByIndex.SetBit(column_n);
+@@ -1027 +1027 @@ void ImGui::TableUpdateLayout(ImGuiTable* table)
+-            table->RequestOutputMaskByIndex |= ((ImU64)1 << column_n);
++            table->RequestOutputMaskByIndex.SetBit(column_n);
+@@ -1154 +1154 @@ void ImGui::TableUpdateBorders(ImGuiTable* table)
+-        if (!(table->EnabledMaskByDisplayOrder & ((ImU64)1 << order_n)))
++        if (!table->EnabledMaskByDisplayOrder.TestBit(order_n))
+@@ -1289 +1289 @@ void    ImGui::EndTable()
+-        if (table->EnabledMaskByIndex & ((ImU64)1 << column_n))
++        if (table->EnabledMaskByIndex.TestBit(column_n))
+@@ -1613 +1613 @@ void ImGui::TableSetBgColor(ImGuiTableBgTarget tar
+-        if ((table->VisibleMaskByIndex & ((ImU64)1 << column_n)) == 0)
++        if (!table->VisibleMaskByIndex.TestBit(column_n))
+@@ -1886 +1886 @@ bool ImGui::TableSetColumnIndex(int column_n)
+-    return (table->RequestOutputMaskByIndex & ((ImU64)1 << column_n)) != 0;
++    return table->RequestOutputMaskByIndex.TestBit(column_n);
+@@ -1912 +1912 @@ bool ImGui::TableNextColumn()
+-    return (table->RequestOutputMaskByIndex & ((ImU64)1 << column_n)) != 0;
++    return table->RequestOutputMaskByIndex.TestBit(column_n);
+@@ -2247 +2247 @@ void ImGui::TableSetupDrawChannels(ImGuiTable* tab
+-    const int channels_for_dummy = (table->ColumnsEnabledCount < table->ColumnsCount || table->VisibleMaskByIndex != table->EnabledMaskByIndex) ? +1 : 0;
++    const int channels_for_dummy = (table->ColumnsEnabledCount < table->ColumnsCount || !table->VisibleMaskByIndex.IsEqual(table->EnabledMaskByIndex)) ? +1 : 0;
+@@ -2333 +2333 @@ void ImGui::TableMergeDrawChannels(ImGuiTable* tab
+-        if ((table->VisibleMaskByIndex & ((ImU64)1 << column_n)) == 0)
++        if (!table->VisibleMaskByIndex.TestBit(column_n))
+@@ -2496 +2496 @@ void ImGui::TableDrawBorders(ImGuiTable* table)
+-            if (!(table->EnabledMaskByDisplayOrder & ((ImU64)1 << order_n)))
++            if (!table->EnabledMaskByDisplayOrder.TestBit(order_n))
