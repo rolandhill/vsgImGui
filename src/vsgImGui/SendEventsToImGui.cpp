@@ -241,7 +241,7 @@ void SendEventsToImGui::apply(vsg::FrameEvent& /*frame*/)
     ImGuiIO& io = ImGui::GetIO();
 
     auto t1 = std::chrono::high_resolution_clock::now();
-    float dt = std::chrono::duration<float>(t1 - t0).count();
+    double dt = std::chrono::duration_cast<std::chrono::duration<double>>(t1 - t0).count();
     t0 = t1;
 
     io.DeltaTime = dt;
