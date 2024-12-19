@@ -219,21 +219,21 @@ void SendEventsToImGui::apply(vsg::ScrollWheelEvent& scrollWheel)
 
 void SendEventsToImGui::_updateModifier(ImGuiIO& io, vsg::KeyModifier& modifier, bool pressed)
 {
-    if (modifier & vsg::MODKEY_Control)
+    // if (modifier & vsg::MODKEY_Control)
     {
-        io.AddKeyEvent(ImGuiMod_Ctrl, pressed);
+        io.AddKeyEvent(ImGuiMod_Ctrl, modifier & vsg::MODKEY_Control);
     }
-    if (modifier & vsg::MODKEY_Shift)
+    // if (modifier & vsg::MODKEY_Shift)
     {
-        io.AddKeyEvent(ImGuiMod_Shift, pressed);
+        io.AddKeyEvent(ImGuiMod_Shift, modifier & vsg::MODKEY_Shift);
     }
-    if (modifier & vsg::MODKEY_Alt)
+    // if (modifier & vsg::MODKEY_Alt)
     {
-        io.AddKeyEvent(ImGuiMod_Alt, pressed);
+        io.AddKeyEvent(ImGuiMod_Alt, modifier & vsg::MODKEY_Alt);
     }
-    if (modifier & vsg::MODKEY_Meta)
+    // if (modifier & vsg::MODKEY_Meta)
     {
-        io.AddKeyEvent(ImGuiMod_Super, pressed);
+        io.AddKeyEvent(ImGuiMod_Super, modifier & vsg::MODKEY_Meta);
     }
 }
 
