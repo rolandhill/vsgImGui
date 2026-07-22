@@ -35,6 +35,12 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #    define VSGIMGUI_DECLSPEC
 #endif
 
+// Fix in-tree build warning C4005 - macro redefinition
+#if defined(IMGUI_API) || defined(IMPLOT_API)
+#    undef IMGUI_API
+#    undef IMPLOT_API
+#endif
+
 #define IMGUI_API VSGIMGUI_DECLSPEC
 #define IMPLOT_API VSGIMGUI_DECLSPEC
 

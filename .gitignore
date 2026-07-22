@@ -88,3 +88,6 @@ local.properties
 
 *imgui.ini
 /CMakeSettings.json
+/.vscode
+*.txt.user
+*.txt.user.*
