@@ -44,6 +44,8 @@ namespace vsgImGui
         void apply(vsg::KeyPressEvent& keyPress) override;
         void apply(vsg::KeyReleaseEvent& keyRelease) override;
         void apply(vsg::ConfigureWindowEvent& configureWindow) override;
+        void apply(vsg::FocusInEvent& focusIn) override;
+        void apply(vsg::FocusOutEvent& focusOut) override;
         void apply(vsg::FrameEvent& frame) override;
 
     protected:
@@ -51,10 +53,12 @@ namespace vsgImGui
 
         uint32_t _convertButton(uint32_t button);
         void _initKeymap();
-        void _updateModifier(ImGuiIO& io, vsg::KeyModifier& modifier, bool pressed);
+        void _updateModifiers(ImGuiIO& io, const vsg::KeyEvent& keyEvent, bool pressed);
 
         std::chrono::high_resolution_clock::time_point t0;
         bool _dragging;
+        bool _leftSuperDown;
+        bool _rightSuperDown;
 
         std::map<vsg::KeySymbol, ImGuiKey> _vsg2imgui;
     };

@@ -33,7 +33,9 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 using namespace vsgImGui;
 
 SendEventsToImGui::SendEventsToImGui() :
-    _dragging(false)
+    _dragging(false),
+    _leftSuperDown(false),
+    _rightSuperDown(false)
 {
     t0 = std::chrono::high_resolution_clock::now();
 
@@ -217,24 +219,23 @@ void SendEventsToImGui::apply(vsg::ScrollWheelEvent& scrollWheel)
     }
 }
 
-void SendEventsToImGui::_updateModifier(ImGuiIO& io, vsg::KeyModifier& modifier, bool pressed)
+void SendEventsToImGui::_updateModifiers(ImGuiIO& io, const vsg::KeyEvent& keyEvent, bool pressed)
 {
-    // if (modifier & vsg::MODKEY_Control)
-    {
-        io.AddKeyEvent(ImGuiMod_Ctrl, modifier & vsg::MODKEY_Control);
-    }
-    // if (modifier & vsg::MODKEY_Shift)
-    {
-        io.AddKeyEvent(ImGuiMod_Shift, modifier & vsg::MODKEY_Shift);
-    }
-    // if (modifier & vsg::MODKEY_Alt)
-    {
-        io.AddKeyEvent(ImGuiMod_Alt, modifier & vsg::MODKEY_Alt);
-    }
-    // if (modifier & vsg::MODKEY_Meta)
-    {
-        io.AddKeyEvent(ImGuiMod_Super, modifier & vsg::MODKEY_Meta);
-    }
+    // vsg::MODKEY_Meta cannot be used to detect the Super/Windows key: it is bit 7, which xcb
+    // reports as mod5 (commonly AltGr), while the Super keys set mod4; the Win32 backend never
+    // sets the bit at all. Track the Super keys from the key symbols instead.
+    if (keyEvent.keyBase == vsg::KEY_Super_L)
+        _leftSuperDown = pressed;
+    else if (keyEvent.keyBase == vsg::KEY_Super_R)
+        _rightSuperDown = pressed;
+
+    // The vsg modifier mask is the state *after* the event has been applied, so mirror all of it
+    // rather than only touching the modifiers that happen to be set. ImGui discards submissions
+    // that don't change state, so submitting all four on every event is cheap.
+    io.AddKeyEvent(ImGuiMod_Ctrl, (keyEvent.keyModifier & vsg::MODKEY_Control) != 0);
+    io.AddKeyEvent(ImGuiMod_Shift, (keyEvent.keyModifier & vsg::MODKEY_Shift) != 0);
+    io.AddKeyEvent(ImGuiMod_Alt, (keyEvent.keyModifier & vsg::MODKEY_Alt) != 0);
+    io.AddKeyEvent(ImGuiMod_Super, _leftSuperDown || _rightSuperDown);
 }
 
 void SendEventsToImGui::apply(vsg::KeyPressEvent& keyPress)
@@ -242,7 +243,7 @@ void SendEventsToImGui::apply(vsg::KeyPressEvent& keyPress)
     ImGuiIO& io = ImGui::GetIO();
 
     // We should always pass the event to ImGui
-    _updateModifier(io, keyPress.keyModifier, true);    
+    _updateModifiers(io, keyPress, true);
     auto itr = _vsg2imgui.find(keyPress.keyBase);
     auto imguiKey = ImGuiKey_None;
     if (itr != _vsg2imgui.end())
@@ -273,7 +274,7 @@ void SendEventsToImGui::apply(vsg::KeyReleaseEvent& keyRelease)
     ImGuiIO& io = ImGui::GetIO();
 
     // We should always pass the event to ImGui
-    _updateModifier(io, keyRelease.keyModifier, false);    
+    _updateModifiers(io, keyRelease, false);
     auto itr = _vsg2imgui.find(keyRelease.keyBase);
     auto imguiKey = ImGuiKey_None;
     if (itr != _vsg2imgui.end())
@@ -297,6 +298,26 @@ void SendEventsToImGui::apply(vsg::ConfigureWindowEvent& configureWindow)
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize.x = static_cast<float>(configureWindow.width);
     io.DisplaySize.y = static_cast<float>(configureWindow.height);
+}
+
+void SendEventsToImGui::apply(vsg::FocusInEvent& /*focusIn*/)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddFocusEvent(true);
+}
+
+void SendEventsToImGui::apply(vsg::FocusOutEvent& /*focusOut*/)
+{
+    ImGuiIO& io = ImGui::GetIO();
+
+    // Keys held when focus is lost never deliver their release to us, so tell ImGui to drop all
+    // key and mouse state. Without this, Alt-Tab leaves Alt stuck down.
+    io.AddFocusEvent(false);
+
+    // Match the state ImGui is about to clear, so we don't re-assert a stale Super key later.
+    _leftSuperDown = false;
+    _rightSuperDown = false;
+    _dragging = false;
 }
 
 void SendEventsToImGui::apply(vsg::FrameEvent& /*frame*/)
