@@ -22,15 +22,23 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 </editor-fold> */
 
 #include <vsgImGui/RenderImGui.h>
+#include <vsgImGui/Texture.h>
 #include <vsgImGui/implot.h>
 
 #include "../imgui/backends/imgui_impl_vulkan.h"
 
+#include <vsg/app/TransferTask.h>
+#include <vsg/core/Array2D.h>
 #include <vsg/io/Logger.h>
 #include <vsg/maths/color.h>
+#include <vsg/state/DescriptorImage.h>
 #include <vsg/utils/CoordinateSpace.h>
+#include <vsg/vk/Context.h>
+#include <vsg/vk/DescriptorPools.h>
 #include <vsg/vk/State.h>
 #include <vsg/vk/SubmitCommands.h>
+
+#include <cstring>
 
 using namespace vsgImGui;
 
@@ -83,6 +91,16 @@ RenderImGui::RenderImGui(vsg::ref_ptr<vsg::Device> device, uint32_t queueFamily,
 
 RenderImGui::~RenderImGui()
 {
+    // Release our atlas textures before the backend shuts down. We never set BackendUserData,
+    // so the backend's own texture cleanup only marks them destroyed.
+    for (ImTextureData* tex : ImGui::GetPlatformIO().Textures)
+    {
+        if (_textures.count(tex->UniqueID) == 0) continue;
+        tex->SetTexID(ImTextureID_Invalid);
+    }
+    _textures.clear();
+    _textureContext = {};
+
     ImGui_ImplVulkan_Shutdown();
     ImPlot::DestroyContext();
     ImGui::DestroyContext();
@@ -174,7 +192,9 @@ void RenderImGui::_init(
     init_info.PhysicalDevice = *(_device->getPhysicalDevice());
     init_info.Device = *(_device);
     init_info.QueueFamily = _queueFamily;
-    init_info.Queue = *(_queue); // ImGui doesn't use the queue so we shouldn't need to assign it, but it has an IM_ASSERT requiring it during debug build.
+    // The backend submits font atlas uploads directly to this queue without VSG's queue mutex. accept() handles
+    // those uploads through VSG's TransferTask instead, so the backend only uses the queue if no TransferTask exists.
+    init_info.Queue = *(_queue);
     init_info.PipelineCache = VK_NULL_HANDLE;
     init_info.PipelineInfoMain.MSAASamples = samples;
 
@@ -201,6 +221,7 @@ void RenderImGui::_init(
     init_info.MinImageCount = std::max(minImageCount, 2u); // ImGui's Vulkan backend has an assert that requires MinImageCount to be 2 or more.
     init_info.ImageCount = imageCount;
     init_info.CheckVkResultFn = check_vk_result;
+    _imageCount = imageCount;
 
     ImGui_ImplVulkan_Init(&init_info);
 
@@ -232,13 +253,108 @@ void RenderImGui::accept(vsg::RecordTraversal& rt) const
 
     // if ImDrawData has been recorded then we need to clear the frame buffer and do the final record to Vulkan command buffer.
     ImDrawData* draw_data = ImGui::GetDrawData();
+
+    // Honour texture requests every frame, even without draw commands, so destroys are not deferred indefinitely.
+    // When handled here, hide them from the backend so it doesn't submit to the queue itself.
+    if (draw_data && _updateTextures(draw_data, commandBuffer.deviceID)) draw_data->Textures = nullptr;
+
     if (draw_data && draw_data->CmdLists.size() > 0)
     {
         if (_clearAttachments) _clearAttachments->record(commandBuffer);
 
-        if (draw_data)
-            ImGui_ImplVulkan_RenderDrawData(draw_data, &(*commandBuffer));
+        ImGui_ImplVulkan_RenderDrawData(draw_data, &(*commandBuffer));
+    }
+}
+
+bool RenderImGui::_updateTextures(ImDrawData* drawData, uint32_t deviceID) const
+{
+    if (!drawData->Textures) return false;
+
+    // Without a TransferTask (no RecordAndSubmitTask) fall back to the backend's own upload path
+    auto transferTask = _device->transferTask.ref_ptr();
+    if (!transferTask) return false;
+
+    if (!_textureContext)
+    {
+        _textureContext = vsg::Context::create(_device.get());
+        _textureContext->transferTask = transferTask;
+        _textureContext->graphicsQueue = _queue;
+
+        // A private pool keeps allocation off the DescriptorPools shared with compile threads, which is not locked
+        _textureContext->descriptorPools = vsg::DescriptorPools::create(_device);
     }
 
+    // Copy the given region of ImGui's pixels into the VSG image, expanding Alpha8 to white + alpha
+    auto copyPixels = [](ImTextureData* tex, vsg::ubvec4Array2D& image, int x0, int y0, int w, int h) {
+        for (int y = y0; y < y0 + h; ++y)
+        {
+            auto dest = static_cast<uint8_t*>(image.dataPointer(static_cast<size_t>(x0) + static_cast<size_t>(y) * image.width()));
+            auto src = static_cast<const uint8_t*>(tex->GetPixelsAt(x0, y));
+            if (tex->Format == ImTextureFormat_RGBA32)
+            {
+                std::memcpy(dest, src, static_cast<size_t>(w) * 4);
+                continue;
+            }
 
+            for (int x = 0; x < w; ++x)
+            {
+                dest[x * 4] = dest[x * 4 + 1] = dest[x * 4 + 2] = 255;
+                dest[x * 4 + 3] = src[x];
+            }
+        }
+    };
+
+    for (ImTextureData* tex : *drawData->Textures)
+    {
+        if (tex->Status == ImTextureStatus_OK) continue;
+
+        if (tex->Status == ImTextureStatus_WantCreate)
+        {
+            // Uploaded by the late transfer after this record traversal, in time for this frame's submit
+            auto image = vsg::ubvec4Array2D::create(tex->Width, tex->Height, vsg::Data::Properties{VK_FORMAT_R8G8B8A8_UNORM});
+            image->properties.dataVariance = vsg::DYNAMIC_DATA_TRANSFER_AFTER_RECORD;
+            copyPixels(tex, *image, 0, 0, tex->Width, tex->Height);
+            image->dirty();
+
+            // No mipmaps: the atlas is sampled 1:1
+            auto sampler = vsg::Sampler::create();
+            sampler->maxLod = 0.0f;
+            sampler->addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampler->addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            sampler->addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+            auto texture = Texture::create(image, sampler);
+            texture->compile(*_textureContext);
+            if (_textureContext->record()) _textureContext->waitForCompletion();
+
+            _textures[tex->UniqueID] = texture;
+            tex->SetTexID(texture->id(deviceID));
+            tex->SetStatus(ImTextureStatus_OK);
+            continue;
+        }
+
+        auto itr = _textures.find(tex->UniqueID);
+
+        if (tex->Status == ImTextureStatus_WantUpdates)
+        {
+            if (itr == _textures.end()) continue;
+
+            auto image = itr->second->descriptorSet->descriptors.front().cast<vsg::DescriptorImage>()->imageInfoList.front()->imageView->image->data.cast<vsg::ubvec4Array2D>();
+            const ImTextureRect& r = tex->UpdateRect;
+            copyPixels(tex, *image, r.x, r.y, r.w, r.h);
+            image->dirty();
+            tex->SetStatus(ImTextureStatus_OK);
+            continue;
+        }
+
+        // WantDestroy: wait until no in-flight frame can still reference the descriptor set
+        if (tex->Status == ImTextureStatus_WantDestroy && tex->UnusedFrames >= static_cast<int>(_imageCount))
+        {
+            if (itr != _textures.end()) _textures.erase(itr);
+            tex->SetTexID(ImTextureID_Invalid);
+            tex->SetStatus(ImTextureStatus_Destroyed);
+        }
+    }
+
+    return true;
 }

@@ -24,6 +24,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 </editor-fold> */
 
 #include <functional>
+#include <map>
 
 #include <vsg/app/Window.h>
 #include <vsg/commands/ClearAttachments.h>
@@ -33,8 +34,14 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 #include <vsgImGui/Export.h>
 #include <vsgImGui/imgui.h>
 
+namespace vsg
+{
+    class Context;
+}
+
 namespace vsgImGui
 {
+    class Texture;
 
     class VSGIMGUI_DECLSPEC RenderImGui : public vsg::Inherit<vsg::Group, RenderImGui>
     {
@@ -80,6 +87,14 @@ namespace vsgImGui
         vsg::ref_ptr<vsg::DescriptorPool> _descriptorPool;
 
         vsg::ref_ptr<vsg::ClearAttachments> _clearAttachments;
+
+        // ImGui's dynamic font atlas textures, uploaded through VSG's TransferTask rather than the
+        // backend's own unsynchronised queue submit. Keyed by ImTextureData::UniqueID.
+        uint32_t _imageCount = 3;
+        mutable vsg::ref_ptr<vsg::Context> _textureContext;
+        mutable std::map<int, vsg::ref_ptr<Texture>> _textures;
+
+        bool _updateTextures(ImDrawData* drawData, uint32_t deviceID) const;
 
         void _init(const vsg::ref_ptr<vsg::Window>& window, bool useClearAttachments);
         void _init(vsg::ref_ptr<vsg::Device> device, uint32_t queueFamily,
